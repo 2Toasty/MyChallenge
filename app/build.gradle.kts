@@ -101,6 +101,9 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.3")
 
 
+
+    // Retrofit
+
     implementation(libs.retrofit)
     implementation(libs.converter.gson)
     implementation(libs.coil)

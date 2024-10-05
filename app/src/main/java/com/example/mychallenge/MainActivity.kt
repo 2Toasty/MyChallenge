@@ -24,11 +24,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import coil.compose.AsyncImage
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Query
+
 
 // Data Model para el JSON y Paginación
 data class Character(
@@ -43,10 +45,13 @@ data class Origin(val name: String = "")
 data class ApiResponse(val results: List<Character>, val info: Info)
 data class Info(val count: Int, val pages: Int, val next: String?, val prev: String?)
 
-// Retrofit API Service con paginación
+// Retrofit API Service con búsqueda y paginación
 interface ApiService {
     @GET("character")
     suspend fun getCharacters(@Query("page") page: Int): ApiResponse
+
+    @GET("character")
+    suspend fun searchCharacters(@Query("name") name: String): ApiResponse  // Buscar personajes por nombre
 }
 
 object RetrofitInstance {
@@ -61,20 +66,40 @@ object RetrofitInstance {
 
 // ViewModel que maneja la lógica
 class MainViewModel : ViewModel() {
-    var characters = mutableStateListOf<Character>()
-    var favorites = mutableStateListOf<Character>()
-    var currentPage by mutableStateOf(1)
-    var totalPages by mutableStateOf(1)
+    // Lista de personajes actuales
+    var characters = mutableStateListOf<Character>() // Lista de personajes
+    var favorites = mutableStateListOf<Character>()  // Lista de favoritos
+
+    // Variables para la paginación
+    var currentPage by mutableStateOf(1)  // Página actual
+    var totalPages by mutableStateOf(1)   // Total de páginas disponibles
+
+    // Resultados de búsqueda
+    var searchResults = mutableStateListOf<Character>()  // Lista para almacenar los resultados de la búsqueda
 
     // Firebase Firestore
     private val firestore = FirebaseFirestore.getInstance()
 
     init {
         fetchCharacters(currentPage)
-        listenToFavoritesInFirebase()  // Escuchar cambios en tiempo real
+        observeFavoritesFromFirebase() // Cargar favoritos desde Firebase al inicio
     }
 
-    // Obtener personajes con paginación
+    // Función para buscar personajes por nombre en la API
+    fun searchCharacters(query: String) {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitInstance.api.searchCharacters(query)
+                searchResults.clear()
+                searchResults.addAll(response.results)  // Almacenar los resultados en searchResults
+            } catch (e: Exception) {
+                e.printStackTrace()
+                searchResults.clear()  // Limpiar si ocurre un error
+            }
+        }
+    }
+
+    // Obtiene personajes con paginación
     fun fetchCharacters(page: Int) {
         viewModelScope.launch {
             try {
@@ -84,30 +109,33 @@ class MainViewModel : ViewModel() {
                 currentPage = page
                 totalPages = response.info.pages
             } catch (e: Exception) {
-                // Manejar el error
+                e.printStackTrace()
             }
         }
     }
 
-    // Escuchar cambios en favoritos en tiempo real
-    private fun listenToFavoritesInFirebase() {
-        firestore.collection("favorites")
-            .addSnapshotListener { snapshots, error ->
-                if (error != null) {
-                    return@addSnapshotListener
-                }
+    // Listener para observar cambios en Firebase en tiempo real
+    private fun observeFavoritesFromFirebase() {
+        firestore.collection("favorites").addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                // Manejar error si ocurre
+                error.printStackTrace()
+                return@addSnapshotListener
+            }
 
-                if (snapshots != null) {
-                    favorites.clear()
-                    for (document in snapshots) {
-                        val character = document.toObject(Character::class.java)
+            if (snapshot != null && !snapshot.isEmpty) {
+                favorites.clear()  // Limpiamos la lista antes de actualizarla
+                for (document in snapshot.documents) {
+                    val character = document.toObject(Character::class.java)
+                    if (character != null) {
                         favorites.add(character)
                     }
                 }
             }
+        }
     }
 
-    // Agregar personaje a favoritos
+    // Función para agregar un personaje a favoritos
     fun addToFavorites(character: Character, onSuccess: () -> Unit) {
         if (!favorites.contains(character)) {
             favorites.add(character)
@@ -116,24 +144,24 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    // Guardar en Firebase en la colección "favorites"
-    private fun saveFavoriteToFirebase(character: Character) {
-        firestore.collection("favorites").document(character.id.toString())
-            .set(character)
-    }
-
-    // Eliminar de favoritos
+    // Función para eliminar un personaje de favoritos
     fun removeFromFavorites(character: Character, onSuccess: () -> Unit) {
         favorites.remove(character)
         firestore.collection("favorites").document(character.id.toString()).delete()
         onSuccess()
     }
 
-    // Verifica si el personaje está en favoritos
+    // Guardar un personaje en Firebase Firestore
+    private fun saveFavoriteToFirebase(character: Character) {
+        firestore.collection("favorites").document(character.id.toString()).set(character)
+    }
+
+    // Verificar si un personaje está en favoritos
     fun isFavorite(character: Character): Boolean {
         return favorites.contains(character)
     }
 }
+
 
 // Pantalla principal con paginación
 @OptIn(ExperimentalMaterial3Api::class)
@@ -192,7 +220,6 @@ fun CharacterListScreen(
     }
 }
 
-
 // Barra de Navegación Inferior con botón de "Home" que lleva a la página 1
 @Composable
 fun BottomNavigationBar(
@@ -217,8 +244,18 @@ fun BottomNavigationBar(
                 }
             )
 
-            // Dejar un espacio en el centro para el FloatingActionButton
-            Spacer(modifier = Modifier.weight(1f))
+            // Ajuste de padding horizontal para mover el ícono de búsqueda
+            NavigationBarItem(
+                icon = { Icon(Icons.Filled.Search, contentDescription = "Buscar") },
+                label = { Text("Buscar") },
+                selected = false,
+                modifier = Modifier.padding(horizontal = 10.dp),  // Ajusta este valor para mover el ícono
+                onClick = {
+                    navController.navigate("search")  // Navegar a la pantalla de búsqueda
+                }
+            )
+
+            Spacer(modifier = Modifier.weight(1.8f))  // Espacio para el FAB
 
             NavigationBarItem(
                 icon = { Icon(Icons.Filled.Person, contentDescription = "Perfil") },
@@ -241,8 +278,59 @@ fun BottomNavigationBar(
     }
 }
 
-// Pantalla de detalle con confirmación
+
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SearchScreen(viewModel: MainViewModel = viewModel()) {
+    var query by remember { mutableStateOf("") }
+    var debounceQuery by remember { mutableStateOf("") }
+
+    // Aplicamos un debounce de 500ms para la búsqueda
+    LaunchedEffect(query) {
+        delay(500)  // Esperar 500ms antes de ejecutar la búsqueda
+        debounceQuery = query  // Actualizar la query a la versión debounced
+    }
+
+    // Realizar la búsqueda cada vez que el texto debounced cambie
+    LaunchedEffect(debounceQuery) {
+        if (debounceQuery.isNotEmpty()) {
+            viewModel.searchCharacters(debounceQuery)  // Buscar personajes en la API
+        } else {
+            viewModel.searchResults.clear()  // Limpiar los resultados si no hay consulta
+        }
+    }
+
+    Scaffold { paddingValues ->
+        Column(
+            modifier = Modifier
+                .padding(paddingValues)
+                .fillMaxSize()
+        ) {
+            // Campo de texto para la búsqueda
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Buscar personaje") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            )
+
+            // Mostrar los personajes filtrados de la API
+            LazyColumn(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(viewModel.searchResults) { character ->
+                    CharacterRow(character = character, onCharacterClick = {
+                        // Aquí puedes navegar al detalle del personaje si lo deseas
+                    })
+                }
+            }
+        }
+    }
+}
+
+// Pantalla de detalle del personaje
 @Composable
 fun CharacterDetailScreen(character: Character, viewModel: MainViewModel = viewModel()) {
     var showMessage by remember { mutableStateOf(false) }
@@ -268,7 +356,9 @@ fun CharacterDetailScreen(character: Character, viewModel: MainViewModel = viewM
                         }
                     }
                 },
-                modifier = Modifier.fillMaxWidth().padding(16.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
             ) {
                 Text(if (isFavorite) "Quitar de Favoritos" else "Agregar a Favoritos")
             }
@@ -290,21 +380,16 @@ fun CharacterDetailScreen(character: Character, viewModel: MainViewModel = viewM
 }
 
 // Pantalla de lista de favoritos
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FavoritesScreen(viewModel: MainViewModel = viewModel(), onCharacterClick: (Character) -> Unit) {
-    Scaffold { paddingValues ->  // Recibimos el padding del Scaffold
+    Scaffold { paddingValues ->
         LazyColumn(
-            modifier = Modifier.padding(paddingValues)  // Aplicamos el padding del Scaffold
+            modifier = Modifier.padding(paddingValues)
         ) {
             items(viewModel.favorites) { character ->
-                CharacterRow(
-                    character = character,
-                    onCharacterClick = {
-                        onCharacterClick(character)
-                    },
-                    modifier = Modifier.padding(8.dp)  // Añadimos un padding a cada fila
-                )
+                CharacterRow(character = character, onCharacterClick = {
+                    onCharacterClick(character)  // Navegar al detalle con el personaje correcto
+                })
             }
         }
     }
@@ -314,11 +399,11 @@ fun FavoritesScreen(viewModel: MainViewModel = viewModel(), onCharacterClick: (C
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen() {
-    Scaffold { paddingValues ->  // Recibimos el padding del Scaffold
+    Scaffold { paddingValues ->
         Column(
             modifier = Modifier
-                .padding(paddingValues)  // Aplicamos el padding del Scaffold
-                .padding(16.dp)  // Añadimos un padding adicional de 16.dp
+                .padding(paddingValues)
+                .padding(16.dp)
         ) {
             Text("Nombre: Martin")
             Text("E-Mail: xxx@gmail.com")
@@ -348,6 +433,135 @@ fun CharacterRow(character: Character, onCharacterClick: (Character) -> Unit, mo
     }
 }
 
+// Pantalla principal con navegación lateral
+@Composable
+fun MainContent(viewModel: MainViewModel = viewModel(), navController: NavHostController) {
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(text = "Menú", style = MaterialTheme.typography.titleLarge)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Opción Home
+                    Text("Home", modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            scope.launch { drawerState.close() }
+                            viewModel.fetchCharacters(1)
+                            navController.navigate("characterList") {
+                                popUpTo("characterList") { inclusive = true }
+                            }
+                        }
+                        .padding(16.dp))
+
+                    // Opción Buscar
+                    Text("Buscar", modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("search")
+                        }
+                        .padding(16.dp))
+
+                    // Opción Perfil
+                    Text("Perfil", modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("profile")
+                        }
+                        .padding(16.dp))
+
+                    // Opción genérica 1
+                    Text("Opción Genérica 1", modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            scope.launch { drawerState.close() }
+                            // Acción para la opción genérica 1
+                        }
+                        .padding(16.dp))
+
+                    // Opción genérica 2
+                    Text("Opción Genérica 2", modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            scope.launch { drawerState.close() }
+                            // Acción para la opción genérica 2
+                        }
+                        .padding(16.dp))
+                }
+            }
+        },
+        content = {
+            Scaffold(
+                bottomBar = {
+                    BottomNavigationBar(
+                        navController = navController,
+                        viewModel = viewModel,
+                        onFavoritesClick = { navController.navigate("favorites") }
+                    )
+                }
+            ) { paddingValues ->
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier
+                            .padding(paddingValues)
+                            .fillMaxSize()
+                    ) {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f) // Asegurar que la lista ocupe el espacio restante
+                        ) {
+                            items(viewModel.characters) { character ->
+                                CharacterRow(character = character, onCharacterClick = {
+                                    navController.navigate("characterDetail/${character.id}")
+                                })
+                            }
+                        }
+
+                        // Botones de paginación
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            Button(
+                                enabled = viewModel.currentPage > 1,
+                                onClick = { viewModel.fetchCharacters(viewModel.currentPage - 1) }
+                            ) {
+                                Text("Página anterior")
+                            }
+
+                            Button(
+                                enabled = viewModel.currentPage < viewModel.totalPages,
+                                onClick = { viewModel.fetchCharacters(viewModel.currentPage + 1) }
+                            ) {
+                                Text("Página siguiente")
+                            }
+                        }
+                    }
+
+                    // Floating Action Button (FAB) centrado
+                    FloatingActionButton(
+                        onClick = { navController.navigate("favorites") },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)  // Centrar el FAB en la parte inferior
+                            .offset(y = (-28).dp)  // Ajustar la posición para que no interfiera con la barra de navegación
+                    ) {
+                        Icon(Icons.Filled.Favorite, contentDescription = "Favoritos")
+                    }
+                }
+            }
+        }
+    )
+}
+
 // Configuración de la navegación
 @Composable
 fun Navigation(viewModel: MainViewModel = viewModel()) {
@@ -355,21 +569,17 @@ fun Navigation(viewModel: MainViewModel = viewModel()) {
 
     NavHost(navController = navController, startDestination = "characterList") {
         composable("characterList") {
-            CharacterListScreen(
-                viewModel = viewModel,
-                navController = navController,
-                onFavoritesClick = {
-                    navController.navigate("favorites")
-                }
-            )
+            MainContent(viewModel = viewModel, navController = navController)
         }
         composable("characterDetail/{characterId}") { backStackEntry ->
             val characterId = backStackEntry.arguments?.getString("characterId")?.toInt() ?: 0
-            val character = viewModel.characters.firstOrNull { it.id == characterId } ?:
-            viewModel.favorites.firstOrNull { it.id == characterId }
+            val character = viewModel.characters.firstOrNull { it.id == characterId }
             if (character != null) {
                 CharacterDetailScreen(character = character)
             }
+        }
+        composable("search") {
+            SearchScreen(viewModel = viewModel)  // Pantalla de búsqueda
         }
         composable("favorites") {
             FavoritesScreen(viewModel = viewModel, onCharacterClick = { character ->
@@ -405,7 +615,7 @@ fun MyApp(viewModel: MainViewModel = viewModel()) {
 @Preview(showBackground = true)
 @Composable
 fun PreviewCharacterListScreen() {
-    val viewModel = MainViewModel() // Aquí podrías usar un mock si prefieres
+    val viewModel = MainViewModel()
     val navController = rememberNavController()
 
     CharacterListScreen(
