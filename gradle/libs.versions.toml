@@ -1,5 +1,12 @@
+#libs.versions.toml
+
 [versions]
 agp = "8.6.1"
+coilComposeVersion = "2.7.0"
+#hiltCompiler = "2.54"
+#hiltNavigationCompose = "1.2.0"
+#hiltNavigationComposeVersion = "1.2.0"
+#hiltVersion = "2.49"
 kotlin = "2.0.0"
 coreKtx = "1.13.1"
 junit = "4.13.2"
@@ -11,6 +18,8 @@ activityCompose = "1.9.2"
 converterGson = "2.9.0"
 coil = "2.7.0"
 composeBom = "2024.09.02"
+materialIconsExtended = "1.7.3"
+navigationComposeVersion = "2.7.3"
 uiTextGoogleFonts = "1.7.2"
 runtimeLivedata = "1.7.2"
 coilCompose = "2.7.0"
@@ -27,6 +36,16 @@ firebaseFirestoreKtx = "25.1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+#androidx-hilt-navigation-compose = { module = "androidx.hilt:hilt-navigation-compose", version.ref = "hiltNavigationCompose" }
+#androidx-hilt-navigation-compose-v100 = { module = "androidx.hilt:hilt-navigation-compose", version.ref = "hiltNavigationComposeVersion" }
+androidx-material-icons-extended = { module = "androidx.compose.material:material-icons-extended", version.ref = "materialIconsExtended" }
+androidx-navigation-compose-v273 = { module = "androidx.navigation:navigation-compose", version.ref = "navigationComposeVersion" }
+
+
+firebase-auth = { module = "com.google.firebase:firebase-auth" }
+firebase-firestore = { module = "com.google.firebase:firebase-firestore" }
+#hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hiltCompiler" }
+#hilt-compiler = { module = "com.google.dagger:hilt-compiler", version.ref = "hiltCompiler" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
@@ -56,6 +75,8 @@ coil = { module = "io.coil-kt:coil", version.ref = "coil" }
 converter-gson = { module = "com.squareup.retrofit2:converter-gson", version.ref = "converterGson" }
 retrofit = { module = "com.squareup.retrofit2:retrofit", version.ref = "retrofit" }
 firebase-firestore-ktx = { group = "com.google.firebase", name = "firebase-firestore-ktx", version.ref = "firebaseFirestoreKtx" }
+#xhilt-android = { module = "com.google.dagger: hilt-android", version.ref = "hiltVersion" }
+#xhilt-android-compiler = { module = "com.google.dagger: hilt-android-compiler", version.ref = "hiltVersion" }
 
 
 [plugins]
